@@ -34,6 +34,8 @@ For all phases, the mouse initiates a trial by nose poking and must leave their
 nose in the port during initiation of the trial. Mice proceed at their own pace
 through the task in a group housed environment. Trial timing, outcome, lever
 position data and video is collected for all trials.
+
+Written by Cameron Woodard
 """
 
 import serial
