@@ -23,7 +23,7 @@ For all testing phases, the mouse initiates trial by nose poking and must leave 
 Mice proceed at their own pace through the task in a group housed environment. Trial timing, outcome, lever position data and video is collected for all trials.
 """
 
-import serial, picamera, classReadEncoder
+import serial, picamera, src.classReadEncoder as classReadEncoder
 import multiprocessing as mp
 import RPi.GPIO as GPIO
 from time import time, sleep, mktime, strptime
@@ -229,7 +229,7 @@ def recordLeverPos(list_leverPos, ns):
                     t_last = time()
                     position_reading = lever.readCounter()
                     position_time = time() - tt_start
-                    
+
                     list_leverPos.append([position_time, position_reading, ns.pert])
                     if not ns.pos1 and not ns.entered_range and position_reading > pos1:
 
@@ -981,7 +981,7 @@ def main():
                     tt_IRBroken = time()
 
                 if not trialStarted: #Enough time has past since last trial and animal can start the trial
-                    
+
                     if (time() - tt_trialStart) > t_timeout and (time() - tt_IRBroken) > t_IRWait:
                         trialStarted = True
                         pert_force = random.choice(pert_list)
