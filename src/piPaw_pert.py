@@ -623,41 +623,6 @@ def checkEntranceReward():
     print("Delivering first entrance reward.")
     return True
 
-"""
-def checkSuccess():
-
-#    Checks if animal has met x% success criteria over last y trials (x = successReq*100, y = n_checkSuccess).
-#    Returns True if criteria is met, otherwise returns False
-
-    fail_codes = ['53', '54']
-    success_codes = ['03', '04']
-    successes = 0
-    total = 0
-
-    with open('/home/pi/piPaw/data/%s/%s_data.txt' %(mouse_name, mouse_name), 'r') as file:
-        events = file.readlines()
-
-    for x in range(len(events)-1, 0, -1):
-        event = events[x]
-        event = event.replace('\n', '')
-        event = event.split('\t')
-
-        if event[1] in success_codes:
-            successes += 1
-            total += 1
-        elif event[1] in fail_codes:
-            total += 1
-
-        if total == n_successCheck:
-            break
-
-    if successes / total >= successReq:
-        print("%s has met criteria for increased hold time (%i successes out of %i total)." %(mouse_name, successes, total))
-        return True
-    else:
-        print("%s has not met criteria for increased hold time (%i successes out of %i total)." %(mouse_name, successes, total))
-        return False
-"""
 def endTrial(datetimeStart, trialTime, event, outcome, pert_force=0.0):
     """
     Ends a trial when success or fail condition has been met. Returns lever to start position, records data and updates variables.
