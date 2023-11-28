@@ -23,7 +23,7 @@ For all testing phases, the mouse initiates trial by nose poking and must leave 
 Mice proceed at their own pace through the task in a group housed environment. Trial timing, outcome, lever position data and video is collected for all trials.
 """
 
-import serial, picamera, src.classReadEncoder as classReadEncoder
+import serial, picamera, encoder
 import multiprocessing as mp
 import RPi.GPIO as GPIO
 from time import time, sleep, mktime, strptime
@@ -148,7 +148,7 @@ CSX = 0 #Pin CS0
 CLK = 10000000 #10Mhz clock freq.
 BYTEMD = 4 #Bytes that will be sent to you.
 samplingRate = 410 #Rate of lever sampling in Hz. 205 gets ~200 Hz rate in practice
-lever = classReadEncoder.Encoder(CSX,CLK,BYTEMD)
+lever = Encoder(CSX,CLK,BYTEMD)
 
 def recordLeverPos(list_leverPos, ns):
     #global ns
