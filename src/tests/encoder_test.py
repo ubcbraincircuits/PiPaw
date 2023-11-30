@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-import classReadEncoder
+import src.encoder
 from time import sleep
 from sys import stdout
 
