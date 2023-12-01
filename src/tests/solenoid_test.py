@@ -1,6 +1,5 @@
 import RPi.GPIO as GPIO
 
-
 GPIO.setmode(GPIO.BCM)
 
 g_SOLENOID = 4
