@@ -364,7 +364,7 @@ def write_lever_pos(t_event, lever_positions, event):
     threshold_pos (int): Threshold for the lever position.
     """
 
-    file_path = f'/home/pi/piPaw/data/{mouse_name}/{mouse_name}_leverPos.txt'
+    file_path = f'data/{mouse_name}/{mouse_name}_leverPos.txt'
     with open(file_path, 'a', encoding='utf-8') as file:
         file.write(f'{t_event}\t{event}\n')
 
@@ -387,7 +387,7 @@ def check_id(tag):
     Checks to see if animal's RFID is in mice.cfg, and if it matches previously detected mouse
     tag is animal RFID
     """
-    with open('/home/pi/piPaw/mice.cfg', 'r', encoding='utf-8') as file:
+    with open('mice.cfg', 'r', encoding='utf-8') as file:
         mice_lines = file.readlines()
 
     for mouse_line in mice_lines:
@@ -413,6 +413,7 @@ def check_id(tag):
     # mouse name, should raise a value error
     print("Mouse ID = " + tag)
     raise ValueError("Mouse name not found in mice.cfg.")
+
 
 def get_serial():
     """
@@ -442,6 +443,7 @@ def get_serial():
     port.flushInput()
     return rfid
 
+
 def record_data(timestamp, event, ht, dt=0.0, _pert_force=0.0):
     """
     Records trial and entrance data to relevant file with the following event codes:
@@ -467,11 +469,12 @@ def record_data(timestamp, event, ht, dt=0.0, _pert_force=0.0):
     ht is the required hold-time during that event (0 in training)
     dt is the duration of the event - this is 0.0 for all non-trial events
     """
-    with open(f'/home/pi/piPaw/data/{mouse_name}/{mouse_name}_data.txt', 'a',
+    with open(f'data/{mouse_name}/{mouse_name}_data.txt', 'a',
               encoding='utf-8') as file:
         data = str(timestamp) + '\t' + event + '\t' + str(ht) + \
             '\t' + str(round(dt, 4)) + '\t' + str(_pert_force) + '\n'
         file.write(data)
+
 
 def update_hold_time(_mouse_name, ht, _phase):
     global median_ht, q3ht, mean_ht, hold_time
@@ -482,7 +485,7 @@ def update_hold_time(_mouse_name, ht, _phase):
         success_codes = ['02','03', '04']
         fail_codes = ['53','54']
 
-        with open(f'/home/pi/piPaw/data/{_mouse_name}/{_mouse_name}_data.txt',
+        with open(f'data/{_mouse_name}/{_mouse_name}_data.txt',
                   'r', encoding='utf-8') as file:
             holdtimes = file.readlines()
 
@@ -549,7 +552,7 @@ def update_mouse_vars(tag):
     global entrance_rewards, hold_time, ht_trials, phase,pert_trials
     global free_water_remained, mean_ht, median_ht, q3ht
 
-    with open('/home/pi/piPaw/mice.cfg', 'r', encoding='utf-8') as file:
+    with open('mice.cfg', 'r', encoding='utf-8') as file:
         mice_lines = file.readlines()
 
     for mouse_line in mice_lines:
@@ -598,6 +601,7 @@ def update_mouse_vars(tag):
                 mouse_day = now.day
             return
 
+
 def record_daily_report(_reward_pulls,
                         _failed_pulls,
                         _mean_ht, _median_ht,
@@ -609,17 +613,18 @@ def record_daily_report(_reward_pulls,
     Record the daily report.
     """
     date = datetime.today() - timedelta(days=1)
-    with open(f'/home/pi/piPaw/data/{mouse_name}/{mouse_name}_dailyreport.txt',
+    with open(f'data/{mouse_name}/{mouse_name}_dailyreport.txt',
               'a', encoding='utf-8') as file:
         data = (f'{date.date()}\t{_reward_pulls}\t{_failed_pulls}\t{_mean_ht}\t'
                 f'{_median_ht}\t{_q3ht}\t{old_ht}\t{_free_water_remained}\t{_phase}\n')
         file.write(data)
 
+
 def save_mouse_vars():
     """
     Saves mouse variables and writes to file when they leave the chamber.
     """
-    with open('/home/pi/piPaw/mice.cfg', 'r', encoding='utf-8') as file:
+    with open('mice.cfg', 'r', encoding='utf-8') as file:
         data = file.readlines()
 
     for idx, row in enumerate(data):
@@ -640,10 +645,11 @@ def save_mouse_vars():
             data[idx][13] = phase
             data[idx][14] = free_water_remained
 
-    with open('/home/pi/piPaw/mice.cfg', 'w') as file:
+    with open('mice.cfg', 'w') as file:
         for row in data:
             newLine = '\t'.join(map(str, row))
             file.write(newLine + '\n')
+
 
 def kill_lever_pos_proc(p):
     """
@@ -653,6 +659,7 @@ def kill_lever_pos_proc(p):
         p.terminate()
         if p.is_alive() == False:
             break
+
 
 def time_out(aht,rht):
     timeout = 5 - 4*(aht/(rht+0.000001))
@@ -669,6 +676,7 @@ def dispense_water(t):
     sleep(t)
     GPIO.output(G_SOLENOID, False)
 
+
 def motor_ramp():
     """
     Ramps the motor up from low to high strength over 0.45s. Motor must already be enabled.
@@ -677,6 +685,7 @@ def motor_ramp():
         motor.duty_cycle = x*10000
         sleep(0.005)
     motor.duty_cycle = high_motor
+
 
 def play_tone(freq, n=1, duration=0.2, iti=0.1):
     """
@@ -715,7 +724,7 @@ def write_video(timestamp, code):
 
     if stream.tell():
         video_file_before = (
-            f'/home/pi/piPaw/data/{mouse_name}/Videos/'
+            f'data/{mouse_name}/Videos/'
             f'{mouse_name}_{code}_{date}_BEFORE.h264'
         )
         with open(video_file_before, 'wb') as output:
@@ -723,7 +732,7 @@ def write_video(timestamp, code):
 
     if stream2.tell():
         video_file_after = (
-            f'/home/pi/piPaw/data/{mouse_name}/Videos/'
+            f'data/{mouse_name}/Videos/'
             f'{mouse_name}_{code}_{date}_AFTER.h264'
         )
         with open(video_file_after, 'wb') as output2:
@@ -738,7 +747,7 @@ def check_entrance_reward():
     Checks if animal has reached interval to get another entrance reward (if in training 1)
     """
 
-    with open(f'/home/pi/piPaw/data/{mouse_name}/{mouse_name}_data.txt',
+    with open(f'data/{mouse_name}/{mouse_name}_data.txt',
               'r', encoding='utf-8') as file:
         events = file.readlines()
 
@@ -945,13 +954,13 @@ def main():
     try:
         # Following loop checks if a mouse is already in the chamber when the program first
         # starts - will activate lever at high torque and sleep until they leave
-        if GPIO.input(G_INFRARED) == 0 or GPIO.input(G_RFID) is True:
+        if GPIO.input(G_INFRARED) == 0 or GPIO.input(G_RFID) == 1:
             motor.duty_cycle = high_motor
             motor.enable = True
             GPIO.output(G_MOTOR_ENABLE, True)
             print("Mouse in chamber during program start... waiting for it to leave.")
             tt_chamber_clear = time()
-            while GPIO.input(G_INFRARED) == 0 or GPIO.input(G_RFID) is True:
+            while GPIO.input(G_INFRARED) == 0 or GPIO.input(G_RFID) == 1:
                 sleep(0.1)
             motor.duty_cycle = low_motor
             sleep(0.1)
@@ -976,7 +985,7 @@ def main():
         while True:
             # The following two conditionals are checked at the beginning of every main body
             # loop to determine whether a mouse is in the chamber and what it's identity is
-            if GPIO.input(G_RFID) is True:
+            if GPIO.input(G_RFID) == 1:
                 # Following is executed if an RFID has come into range for the first time since
                 # the grace period last expired
                 if not data_loaded:

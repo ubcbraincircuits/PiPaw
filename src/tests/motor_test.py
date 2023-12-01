@@ -1,6 +1,7 @@
 import RPi.GPIO as GPIO
 from time import sleep
-from pwm import PWM
+
+from src.pwm import PWM
 
 g_motorEnable = 23
 g_motorDirection = 24
