@@ -1,6 +1,6 @@
 import picamera
 
-input('Press enter to begin previewing camera, then press enter again to stop preview.')     
+input('Press enter to begin previewing camera, then press enter again to stop preview.')
 with picamera.PiCamera() as camera:
     camera.resolution = (256, 256)
     camera.framerate = 30
@@ -9,5 +9,3 @@ with picamera.PiCamera() as camera:
     camera.start_preview()
     input()
     camera.stop_preview()
-
-    
