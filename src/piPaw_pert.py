@@ -237,7 +237,6 @@ def record_lever_pos(_list_lever_pos, _ns):
     Takes in an empty list and appends the current encoder position and time to it at a certain rate
     (based on specified sampling rate). Also checks if success range/fail range has been reached.
     '''
-    global threshold_pos
 
     if phase == 1:
         threshold_pos = 34
@@ -248,7 +247,7 @@ def record_lever_pos(_list_lever_pos, _ns):
         t_last = time()
         position_reading = lever.read_counter()
         position_time = 0
-        _list_lever_pos.append([position_time, position_reading,ns.pert])
+        _list_lever_pos.append([position_time, position_reading, ns.pert])
         if lever.read_counter() > threshold_pos:
             tt_start = time()
             _ns.trial_started = True
@@ -260,7 +259,7 @@ def record_lever_pos(_list_lever_pos, _ns):
                     t_last = time()
                     position_reading = lever.read_counter()
                     position_time = time() - tt_start
-                    _list_lever_pos.append([position_time, position_reading])
+                    _list_lever_pos.append([position_time, position_reading, ns.pert])
 
                     if not _ns.pos1 and position_reading > pos1:
                         tt_range = time()
@@ -363,20 +362,26 @@ def write_lever_pos(t_event, lever_positions, event):
     mouse_name (str): Name of the mouse.
     threshold_pos (int): Threshold for the lever position.
     """
-
     file_path = f'data/{mouse_name}/{mouse_name}_leverPos.txt'
+
     with open(file_path, 'a', encoding='utf-8') as file:
         file.write(f'{t_event}\t{event}\n')
-
+        
+        first_index = 0
+        
         # Find the first index past the threshold
-        first_index = next((i for i, pos in enumerate(lever_positions)
-                            if pos[1] > threshold_pos), 0)
-        # Adjust index to capture 100 positions before threshold, if possible
-        first_index = max(first_index - 100, 0)
+        for x in range(len(list_lever_pos)):
+            if list_lever_pos[x][1] > threshold_pos:
+                if x > 100:
+                    first_index = x - 100
+                else:
+                    first_index = 0
+                break
 
         # Write position data to file
-        for _time, x_pos, y_pos in lever_positions[first_index:]:
-            file.write(f'{_time}\t{x_pos}\t{y_pos}\n')
+        for x in range(first_index, len(list_lever_pos)):
+            line = list_lever_pos[x]
+            file.write(f'{str(line[0])}\t{str(line[1])}\t{str(line[2])}\n')
 
     print("Lever position saved to file.")
 
@@ -435,7 +440,7 @@ def get_serial():
     if not line:
         raise ValueError("No RFID detected (logical input is high).")
 
-    #Format and return
+    #Format and return 
     rfid = ''
     for c in line:
         if chr(c) in RFID_chars:
@@ -477,8 +482,6 @@ def record_data(timestamp, event, ht, dt=0.0, _pert_force=0.0):
 
 
 def update_hold_time(_mouse_name, ht, _phase):
-    global median_ht, q3ht, mean_ht, hold_time
-
     if _phase == 1 or _phase == 2 or _phase == 3:
         ht_list=[]
         f_list=[]
@@ -876,7 +879,8 @@ def end_trial(datetime_start, trial_time, _event, outcome, pert_force=0.0):
 
 
 def perturbation(pert_force):
-    global ns, trial_started, event
+    global ns
+
     gc.collect ()
     perturbation_duty = int(low_motor + (abs(pert_force))*low_motor)
     trial_started = False
