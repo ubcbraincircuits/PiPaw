@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 import time
-from src.encoder import Encoder
+from src.io_connections.lever import Encoder
 
 def main():
     try:
