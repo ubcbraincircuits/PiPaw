@@ -8,7 +8,8 @@ TESTS = {
 	'infrared': 'infrared_test',
 	'encoder': 'encoder_test',
 	'camera': 'camera_test',
-	'motor': 'motor_test'
+	'motor': 'motor_test',
+	'buzzer': 'buzzer_test'
 }
 
 
@@ -22,7 +23,7 @@ def run_test(part):
 
 
 def run():
-    module = "src.piPaw_pert"
+    module = "src.main"
     command = ["python3", "-m", module]
     try:
         subprocess.run(command, check=True)

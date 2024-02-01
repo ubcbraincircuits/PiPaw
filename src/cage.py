@@ -2,13 +2,13 @@ import RPi.GPIO as GPIO
 import multiprocessing as mp
 
 from datetime import datetime
-from time import time, sleep, mktime, strptime
+from time import time, sleep, mktime, strptime, monotonic
 
 from src.constants import *
 from src.mouse import Mouse
 from .io_connections import Camera, Infrared, Solenoid, RFID, Buzzer, Lever
 
-MOUSED_DATA_FILE = "../data/mice.cfg"
+MOUSED_DATA_FILE = "./data/mice.cfg"
 
 
 class Cage:
@@ -32,16 +32,12 @@ class Cage:
         self.current_mouse = None
         self.data_loaded = False
         # Trial Stuff
-        self.trial = {
-            "ongoing": False,
-            "time_mouse_gone": None,
-            "datetime_mouse_last_detected": None,
-        }
         self.trial_ongoing = False
         self.record_lever_position_process = None
         # If mouse leaves before trial is over
-        self.trial_time_mouse_gone = None
+        self.trial_time_mouse_gone = time()
         self.trial_datetime_mouse_last_detected = None
+        self.trial_monotime_mouse_last_detected = None
         # Read Mouse Config
         self.read_mouse_config()
 
@@ -53,7 +49,13 @@ class Cage:
         Reads the mouse configuration from the config file.
         """
         with open(MOUSED_DATA_FILE, "r", encoding='utf-8') as f:
+            first_line = True
+            
             for line in f:
+                if first_line:
+                   first_line = False
+                   continue 
+                
                 mouse_data = line.replace('\n', '')
                 mouse_data = mouse_data.split('\t')
                 mouse = Mouse(
@@ -90,8 +92,9 @@ class Cage:
         """
         Terminates the record lever position process.
         """
-        while self.record_lever_position_process.is_alive():
+        if self.record_lever_position_process.is_alive():
             self.record_lever_position_process.terminate()
+        self.record_lever_position_process.join()
 
     def record_lever_position(self):
         """
@@ -101,22 +104,21 @@ class Cage:
         """
         if self.current_mouse == None:
             return
-
+        
         time_last = time()
         lever_position = self.lever.get_position()
         time_elapsed = 0
         self.lever.record_current_position(time_elapsed)
 
-        if self.lever.get_position() <= THRESHOLD_POSITION_ZERO[self.current_mouse.phase]:
-            while(time()-time_last < 1.0/SAMPLING_RATE):
-                sleep(0.0001)
-                time_last = time()
-
+        while(self.lever.get_position() <= THRESHOLD_POSITION_ZERO[self.current_mouse.phase]):
+            self.lever.record_current_position(0)
+            sleep(0.0001)
+            time_last = time()
+        
         trial_time_start = time()
         trial_time_range = None
         trial_time_grace = None
-        self.lever.past_threshold_pos0 = True
-        self.trial_ongoing = self.lever.past_threshold_pos0
+        self.lever.ns.past_threshold_pos0 = True
         self.lever.ns.start_time = time()
 
         while self.trial_ongoing:
@@ -127,7 +129,6 @@ class Cage:
                                                                            lever_position,
                                                                            trial_time_range,
                                                                            trial_time_grace)
-
             if self.trial_ongoing:
                 self.sleep_until_next_sample(time_last)
 
@@ -137,8 +138,8 @@ class Cage:
         :param last_sample_time: Time when the last sample was taken.
         :param sampling_rate: The sampling rate in Hz.
         """
-        while (time.time() - last_sample_time < 1.0 / SAMPLING_RATE):
-            time.sleep(0.0001)
+        while (time() - last_sample_time < 1.0 / SAMPLING_RATE):
+            sleep(0.0001)
 
     def time_out(self, aht,rht):
         timeout = 5 - 4*(aht/(rht+0.000001))
@@ -153,6 +154,7 @@ class Cage:
     def cleanup(self):
         if self.current_mouse is not None:
             if self.lever.ns.past_threshold_pos0:
+                print("1")
                 self.terminate_record_lever_position_process()
             self.current_mouse.cleanup()
         GPIO.cleanup()
@@ -194,13 +196,13 @@ class Cage:
         if self.lever.ns.past_threshold_pos1 and position_reading > THRESHOLD_POSITION_TWO:
             self.lever.ns.time_in_range = time() - trial_time_range
             self.lever.ns.past_threshold_pos2 = True
-            self.lever.ns.trial_ongoing = False
+            self.lever.ns.completed = True
         elif self.lever.ns.past_threshold_pos1 and position_reading <= THRESHOLD_POSITION_ONE:
             self.lever.ns.time_in_range = time() - trial_time_range
-            self.lever.ns.trial_ongoing = False
+            self.lever.ns.completed = True
         elif position_reading <= THRESHOLD_POSITION_ZERO[1]:
             self.lever.ns.time_in_range = 0.0
-            self.lever.ns.trial_ongoing = False
+            self.lever.ns.completed = True
         return trial_time_range, None
 
     def handle_phase_two_conditions(self, position_reading, trial_time_range, _):
@@ -210,13 +212,13 @@ class Cage:
         if self.lever.ns.past_threshold_pos1 and position_reading > THRESHOLD_POSITION_TWO:
             self.lever.ns.time_in_range = time() - trial_time_range
             self.lever.ns.past_threshold_pos2 = True
-            self.lever.ns.trial_ongoing = False
+            self.lever.ns.completed = True
         elif self.lever.ns.past_threshold_pos1 and position_reading <= THRESHOLD_POSITION_ONE:
             self.lever.ns.time_in_range = time() - trial_time_range
-            self.lever.ns.trial_ongoing = False
+            self.lever.ns.completed = True
         elif position_reading <= THRESHOLD_POSITION_ZERO[2]:
             self.lever.ns.time_in_range = 0.0
-            self.lever.ns.trial_ongoing = False
+            self.lever.ns.completed = True
         return trial_time_range, None
 
     def handle_phase_three_conditions(self, position_reading, trial_time_range, trial_time_grace):
@@ -232,28 +234,41 @@ class Cage:
             if self.lever.ns.grace_period and time() - trial_time_grace > T_LEVGRACE:
                 self.lever.ns.past_threshold_pos2 = True
                 self.lever.ns.grace_period = False
-                self.lever.ns.trial_ongoing = False
+                self.lever.ns.completed = True
             if not self.lever.ns.grace_period and self.lever.ns.time_in_range < PERTURBATION_WAIT:
                 self.lever.ns.past_threshold_pos2 = True
                 self.lever.ns.grace_period = False
-                self.lever.ns.trial_ongoing = False
+                self.lever.ns.completed = True
         elif self.lever.ns.past_threshold_pos1 and position_reading <= THRESHOLD_POSITION_ONE:
             self.lever.ns.time_in_range = time() - trial_time_range
             if not self.lever.ns.grace_period and self.lever.ns.time_in_range > PERTURBATION_WAIT:
                 self.lever.ns.grace_period = True
                 trial_time_grace = time()
             if self.lever.ns.grace_period and time() - trial_time_grace > T_LEVGRACE:
-                self.lever.ns.trial_ongoing = False
+                self.lever.ns.completed = True
         elif position_reading <= THRESHOLD_POSITION_ZERO[3]:
             self.lever.ns.time_in_range = 0.0
-            self.lever.ns.trial_ongoing = False
+            self.lever.ns.completed = True
         return trial_time_range, trial_time_grace
 
     def start_trial(self, datetime_start, event, hold_time, trial_time, pert_force=0.0):
         if self.current_mouse.phase == 1:
             return
+            
+    def cleanup_vars(self):
+        print("Call to cleanup vars")
+        if self.record_lever_position_process:
+            self.terminate_record_lever_position_process()
+        self.trial_ongoing = False        
+        self.record_lever_position_process = None
+        self.lever.complete_trial()
+        
+        if self.rfid.out_of_range():
+            self.trial_time_mouse_gone = time()
+            self.trial_datetime_mouse_last_detected = datetime.now()
 
-    def end_trial(self, datetime_start, event, hold_time, trial_time, outcome, pert_force=0.0):
+        
+    def end_trial(self, datetime_start, monotime_start, event, hold_time, trial_time, outcome, pert_force=0.0):
         """
         Ends a trial when success or fail condition has been met. Returns lever to start position,
         records data and updates variables.
@@ -262,11 +277,18 @@ class Cage:
         - event is a string indicating the event code
         - outcome is a string indicating if trial was successful, failed or cancelled
         """
+        
+        # End Trial
+        self.trial_ongoing = False
+        
+        # Deal with ending trial
         trial_time_finished = time()
         self.lever.motor.ramp()
-        self.current_mouse.record_data(datetime_start, event, trial_time, pert_force)
-
+        self.current_mouse.record_data(datetime.fromtimestamp(datetime_start), monotime_start, event, trial_time, pert_force)
         self.camera.stop()
+        
+        if self.record_lever_position_process.is_alive():
+            self.record_lever_position_process.terminate()
 
         if outcome == 'success':
             self.buzzer.play_tone('Hi')
@@ -276,40 +298,47 @@ class Cage:
             print(f"Successful trial: code {event}. {self.current_mouse.name} has \
                   {self.current_mouse.reward_pulls} successful trial(s) today, \
                   {self.current_mouse.tot_reward_pulls} in total ({datetime_start}).")
-            self.camera.write_video(self.current_mouse.name, datetime_start, event)
+                  
+            self.camera.write_video(self.current_mouse.name, datetime.fromtimestamp(datetime_start), event)
             self.lever.write_position(self.current_mouse, datetime_start, event)
 
         if outcome == 'failed':
             self.buzzer.play_tone('Low', duration=0.5)
             self.current_mouse.failed_pulls += 1
             self.current_mouse.tot_failed_pulls += 1
-            print(f"Failed trial: code {event}. {self.current_mouse.mouse_name} has \
+            print(f"Failed trial: code {event}. {self.current_mouse.name} has \
                   {self.current_mouse.failed_pulls} failed trial(s) today, \
                   {self.current_mouse.tot_failed_pulls} in total ({datetime_start}).")
-            self.camera.write_video(self.current_mouse.name, datetime_start, event)
+            self.camera.write_video(self.current_mouse.name, datetime.fromtimestamp(datetime_start), event)
             self.lever.write_position(self.current_mouse, datetime_start, event)
-
-        # Also if outcome is cancelled
-        self.camera.stream2.clear()
-        self.camera.start_stream2()
-        self.lever.complete_trial()
-
+        
+        # Terminate Record Lever Process
+        self.terminate_record_lever_position_process()
+        
         # Checking if phase has changed
         if self.current_mouse.phase == 1 and self.current_mouse.tot_reward_pulls >= N_TRAINING:
             print(f"{self.current_mouse.name} has reached {self.current_mouse.tot_reward_pulls} \
                     successful trials. Changing to main stage.")
             self.current_mouse.update_and_analyze_hold_time(INITIAL_HT)
             self.current_mouse.phase = 2
-            self.current_mouse.record_data(datetime.now(), '66')
+            self.current_mouse.record_data(datetime.now(), monotonic(), '66')
         elif self.current_mouse.phase == 2:
             self.current_mouse.ht_trials += 1
             # if hold_time < MAX_HT and ht_trials >= N_SUCCESS_CHECK:
             print(f"{self.current_mouse.name} has {self.current_mouse.ht_trials} \
                     trials at {hold_time:.2f} second hold time.")
+        
+        # Also if outcome is cancelled
+        self.camera.stream2.clear()
+        self.camera.start_stream2()
+        self.lever.complete_trial()
+        self.trial_ongoing = False
+        self.record_lever_position_process = None
 
         print(f"Recorded trial data and reset variables in {time() - trial_time_finished} seconds.")
 
-        if not self.rfid.out_of_range():
+        if self.rfid.out_of_range():
+            self.rfid.interrupted = True
             self.trial_time_mouse_gone = time()
             self.trial_datetime_mouse_last_detected = datetime.now()
 
@@ -319,17 +348,19 @@ class Cage:
                 return mouse
         return None
 
+
     # =============================
     # Mouse handlers
     # =============================
     def enters_mouse(self):
         tag_id = self.rfid.get_serial()
-        self.has_mouse_changed(tag_id)
+        if self.current_mouse is not None:
+            self.has_mouse_changed(tag_id)
         self.lever.motor.set_high_duty_cycle()
         self.lever.motor.enable()
         self.current_mouse = self.get_mouse_with_tag(tag_id)
         self.current_mouse.update()
-        self.current_mouse.record_data(datetime.now(), '00')
+        self.current_mouse.record_data(datetime.now(), monotonic(), '00')
         self.camera.start()
         print("Data loaded and motor enabled. Waiting for nose poke...")
 
@@ -337,11 +368,11 @@ class Cage:
         self.camera.stop()
         self.camera.stream.clear()
         self.current_mouse.record_data(
-            self.trial_datetime_mouse_last_detected, '99', self.current_mouse.hold_time) # 99 is the mouse exit code
+            self.trial_datetime_mouse_last_detected, self.trial_monotime_mouse_last_detected, '99', self.current_mouse.hold_time) # 99 is the mouse exit code
         self.current_mouse.save()
         self.current_mouse = self.get_mouse_with_tag(tag_id)
         self.current_mouse.update()
-        self.current_mouse.record_data(datetime.now(), '00') # 00 is the mouse entrance code
+        self.current_mouse.record_data(datetime.now(), monotonic(), '00') # 00 is the mouse entrance code
         print("Waiting for nose poke...")
         self.camera.start()
 
@@ -368,13 +399,13 @@ class Cage:
         return self.infrared.beam_broken()
 
     def is_same_mouse_tag(self, tag_id):
-        return tag_id == self.current_mouse.tag
+        return self.current_mouse is None or tag_id == self.current_mouse.tag
 
     def is_same_mouse(self, mouse):
         """
         Checks to see if the current mouse is the same as the previous ones.
         """
-        return self.current_mouse is mouse
+        return self.current_mouse is None or self.current_mouse is mouse
 
     def has_entrance_reward(self):
         """
@@ -388,7 +419,7 @@ class Cage:
             event = event.replace('\n', '')
             event = event.split('\t')
 
-            if event[1] == '01':
+            if event[2] == '01':
                 last_drop_time = mktime(strptime(event[0], "%Y-%m-%d %H:%M:%S.%f"))
                 interval = time() - last_drop_time
                 if interval > T_ENTRANCE_REWARD_INTERVAL:
@@ -405,18 +436,12 @@ class Cage:
         for mouse in self.mice:
             if mouse.tag == tag:
                 if self.is_same_mouse(mouse):
+                    print("Mouse has not changed.")
+                    return False
+                else:
                     print(
                         f'Mouse has changed! {mouse.name}:{mouse.tag} entered the chamber ({datetime.now()}).')
                     return True
-                else:
-                    print("Mouse has not changed.")
-                    return False
-
-            # If data is not loaded, we are just checking to make sure mouse name is in
-            # mice.cfg, don't need to return anything
-            print(
-                f'{mouse.name}:{mouse.tag} entered the chamber ({datetime.now()}).')
-            return
 
         # If has_mouse_changed gets through the full mice.cfg file without finding the
         # mouse name, should raise a value error

@@ -51,7 +51,8 @@ class RFID:
 
     def out_of_range(self):
         if not self.interrupted and self.port.inWaiting() >= 16:
-            print("RFID went out of range durign trial.")
+            print("RFID went out of range during trial.")
+            self.interrupted = True
             return True
         return False
 

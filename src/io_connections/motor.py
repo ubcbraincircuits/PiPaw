@@ -5,8 +5,8 @@ from src.pwm import PWM
 from src.constants import *
 
 ONE_MILLION_NS = 1000000
-HIGH_MOTOR = ONE_MILLION_NS * 0.85 # 85% duty cycle
-LOW_MOTOR = ONE_MILLION_NS * 0.15 # 15% duty cycle
+HIGH_MOTOR = int(ONE_MILLION_NS * 0.85) # 85% duty cycle
+LOW_MOTOR = int(ONE_MILLION_NS * 0.15) # 15% duty cycle
 
 class Motor:
     def __init__(self):
@@ -16,6 +16,12 @@ class Motor:
         self.motor = PWM(0)
         self.motor.export()
         self.motor.period = ONE_MILLION_NS # 1 million ns = 1000 Hz
+        
+        # Start Position
+        self.motor.duty_cycle = HIGH_MOTOR
+        self.motor.enable = True
+        GPIO.output(G_MOTOR_ENABLE, True)
+        sleep(0.5)
 
     def gpio_setup(self):
         """
@@ -54,6 +60,11 @@ class Motor:
             self.motor.duty_cycle = x*10000
             sleep(0.005)
         self.motor.duty_cycle = HIGH_MOTOR
+        
+    def disable(self):
+        GPIO.output(G_MOTOR_ENABLE, False)
+        self.motor.enable = False
+            
 
     def cleanup(self):
         self.motor.duty_cycle = LOW_MOTOR

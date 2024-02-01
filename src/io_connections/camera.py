@@ -1,5 +1,7 @@
 import picamera
 
+from datetime import datetime
+
 class Camera:
     def __init__(self):
         # Initializing camera
@@ -15,7 +17,7 @@ class Camera:
         Starts the camera preview.
         """
         self.camera.start_recording(self.stream, format='h264')
-        self.camera.start_preview()
+        self.camera.start_preview(fullscreen=False, window=(100, 200, 500, 500))
 
     def start_stream2(self):
         self.camera.start_recording(self.stream2, format='h264')
@@ -37,12 +39,13 @@ class Camera:
         the internal storage; timestamp is the datetime of the trial, code is the trial code.
         """
         print('WRITING VIDEO')
+        
         date = (f"{timestamp.month}-{timestamp.day}-{timestamp.year}-"
                 f"{timestamp.hour:02d}{timestamp.minute:02d}{timestamp.second:02d}")
 
         if self.stream.tell():
             video_file_before = (
-                f'data/{mouse_name}/Videos/'
+                f'./data/{mouse_name}/Videos/'
                 f'{mouse_name}_{code}_{date}_BEFORE.h264'
             )
             with open(video_file_before, 'wb') as output:

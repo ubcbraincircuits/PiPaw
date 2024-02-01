@@ -1,10 +1,11 @@
 import random
 
 from datetime import datetime
-from time import time, sleep
+from time import time, sleep, monotonic
 
-from .cage import Cage
-from .constants import *
+from src.cage import Cage
+from src.constants import *
+
 
 def time_out(aht,rht):
     timeout = 5 - 4*(aht/(rht+0.000001))
@@ -23,13 +24,14 @@ def main():
             cage.lever.set_starting_position()
             print("Done Init! Waiting for mouse!")
 
-        trial_time_start = None
-        trial_time_ir_broken = None
-        trial_time_cancel = None
-        trial_timeout = None
+        trial_time_start = time()
+        trial_monotime_start = monotonic()
+        trial_time_ir_broken = time()
+        trial_time_cancel = 5.0
+        trial_timeout = 5.0
 
         while True:
-            if cage.is_mouse_in_chamber():
+            if cage.rfid.rfid_detected():
                 # Following is executed if an RFID has come into range for the first time since
                 # the grace period last expired
                 if cage.current_mouse is None:
@@ -41,16 +43,17 @@ def main():
                     if cage.has_mouse_changed(tag_id):
                         cage.switch_mouse(tag_id)
                         trial_timeout = T_TIMEOUT_CANCELLED
-                    nose_poke = False
+                        nose_poke = False
 
-            elif not cage.is_mouse_in_chamber():
+            elif not cage.rfid.rfid_detected():
 
                 # Evaluates True when a previously detected mouse goes out of range:
-                if cage.current_mouse and cage.rfid.interrupted:
+                if cage.current_mouse and not cage.rfid.interrupted:
                     print(f"RFID signal for {cage.current_mouse.name} went out of range.")
                     cage.rfid.interrupted = True
                     cage.trial_time_mouse_gone = time()
                     cage.trial_datetime_mouse_last_detected = datetime.now()
+                    cage.trial_monotime_mouse_last_detected = monotonic()
 
                 # Evaluates True once grace period for mouse detection is over and
                 # mouse is assumed to have left the chamber:
@@ -58,7 +61,7 @@ def main():
                     time() - cage.trial_time_mouse_gone > T_RFID_GRACE and not nose_poke:
                     print(f"{cage.current_mouse.name} not detected for more than {T_RFID_GRACE} seconds. \
                           Assuming chamber is empty ({datetime.now()}).")
-                    cage.current_mouse.record_data(cage.trial_datetime_mouse_last_detected, '99')
+                    cage.current_mouse.record_data(cage.trial_datetime_mouse_last_detected, cage.trial_monotime_mouse_last_detected, '99')
                     cage.current_mouse.save()
                     cage.camera.stop()
                     cage.camera.clear_streams()
@@ -82,14 +85,14 @@ def main():
                     sleep(0.01)
 
             if not nose_poke:
-                if cage.is_mouse_in_chamber():
+                if cage.infrared.beam_broken():
                     # Nose poke is detected before the RFID was identified
                     if cage.current_mouse == None:
                         print("Infrared broken before RFID was detected. \
                               Waiting until ID can be determined.")
                         current_time = time()
-                        while not cage.is_mouse_in_chamber():
-                            if (time() - current_time) > T_IRGRACE:
+                        while not cage.rfid.rfid_detected():
+                            if (time() - current_time) > T_IR_GRACE:
                                 raise ValueError("Infrared broken but RFID could \
                                                  not be detected within 10 seconds.")
                             sleep(0.01)
@@ -105,20 +108,25 @@ def main():
                         cage.current_mouse.entrance_rewards += 1
                         cage.camera.stop()
 
-                        if cage.current_mouse.phae != 1:
+                        if cage.current_mouse.phase != 1:
                             cage.current_mouse.free_water_remained -= 1
 
                         # 01 - Nose Poke reward code
-                        cage.current_mouse.record_data(datetime.now(), '01')
+                        cage.current_mouse.record_data(datetime.now(), monotonic(), '01')
 
                         # If mouse given nose poke drop, wait 5 seconds
                         # until the first trial (otherwise can start immediately)
                         trial_time_start = time()
+                        trial_monotime_start = monotonic()
                         cage.camera.write_video(cage.current_mouse.name, datetime.now(), '01')
                         cage.camera.camera.start_recording(cage.camera.stream2, format='h264')
 
             while nose_poke:
-                # Animal moved head which broke beam
+                
+                # if cage.record_lever_position is None:
+                #    cage.init_record_lever_process()
+
+                # Animal has removed head from position
                 if not cage.infrared.beam_broken():
                     if not infrared_restored:
                         trial_time_cancel = time()
@@ -133,34 +141,40 @@ def main():
                             cage.camera.camera.start_recording(cage.camera.stream2, 'h264')
                             cage.lever.motor.set_high_duty_cycle()
                             cage.trial_ongoing = False
+                            nose_poke = False
                             print("Head removed from position before trial was initiated.")
-                        elif cage.trial_ongoing:
-                            cage.terminate_record_lever_position_process()
+                        elif cage.lever.ns.past_threshold_pos0:
                             print("Head removed before trial could be completed. \
                                   Trial cancelled (Code 51).")
                             cage.end_trial(
                                 trial_time_start,
-                                0.0,
+                                trial_monotime_start,
                                 '51',
+                                0.0,
+                                0.0,
                                 'cancelled'
                             ) # 51 is trial code for head being removed mid-trial
                             trial_timeout = T_TIMEOUT_CANCELLED
                         else:
-                            print("Head removed from position .")
+                            print("Head removed from position.")
+                            cage.cleanup_vars()
                         nose_poke = False
                         infrared_restored = False
                         break
+                        
                 elif cage.infrared.beam_broken() and infrared_restored:
                     infrared_restored = False
                     trial_time_ir_broken = time()
-
+                
                 if not cage.trial_ongoing:
                     if (time() - trial_time_start) > trial_timeout and \
                        (time() - trial_time_ir_broken) > T_IR_WAIT:
                         cage.trial_ongoing = True
+                        trial_time_start = time()
+                        trial_monotime_start = monotonic()
                         cage.lever.ns.pert_force = random.choice(PERT_LIST)
                         print("Timeout is up, motor switched to low torque.")
-                        cage.camera.camera.start_preview()
+                        cage.camera.camera.start_preview(fullscreen=False, window=(100, 200, 500, 500))
                         cage.camera.stream2.clear()
                         cage.camera.camera.split_recording(cage.camera.stream2)
                         cage.init_record_lever_position_process()
@@ -168,30 +182,40 @@ def main():
                         cage.buzzer.play_tone('Med')
 
                 elif cage.lever.ns.past_threshold_pos0 and not cage.trial_ongoing:
-                    trial_time_start = datetime.now()
+                    trial_time_start = time()
+                    trial_monotime_start = monotonic()
                     cage.trial_ongoing = True
 
-                    if cage.phase == 1:
+                    if cage.current_mouse.phase == 1:
                         print("Trial initiated - mouse is in training stage.")
-                    elif cage.phase == 2:
+                    elif cage.current_mouse.phase == 2:
                         print("Trial initiated - mouse is in main stage of testing.")
 
-                elif cage.trial_ongoing and cage.lever.ns.past_threshold_pos0:
-                    cage.terminate_record_lever_position_process()
+                elif cage.trial_ongoing and cage.lever.ns.completed:
                     trial_timeout = time_out(cage.lever.ns.time_in_range, cage.current_mouse.hold_time)
-                    if cage.phase == 1:
+                    
+                    if cage.current_mouse.phase == 1:
                         # 02 is success code for Training
-                        cage.end_trial(trial_time_start, cage.lever.ns.time_in_range, '02', 'success', pert_force=0.0)
-                    elif cage.phase == 2 or cage.phase == 3:
-                        if cage.lever.ns.pos1:
-                            if cage.lever.ns.pos2: # Lever exited range towards back of range
+                        cage.end_trial(
+                            trial_time_start,
+                            trial_monotime_start, 
+                            '02',
+                            cage.current_mouse.hold_time, 
+                            cage.lever.ns.time_in_range,
+                            'success'
+                        )
+                    elif cage.current_mouse.phase == 2 or cage.current_mouse.phase == 3:
+                        if cage.lever.ns.past_threshold_pos1:
+                            if cage.lever.ns.past_threshold_pos2: # Lever exited range towards back of range
                                 if cage.lever.ns.time_in_range >= cage.current_mouse.hold_time:
                                     # 04 is success code for Acquisition
                                     # (exited towards back of range)
                                     cage.end_trial(
                                         trial_time_start,
-                                        cage.lever.ns.time_in_range,
+                                        trial_monotime_start,
                                         '04',
+                                        cage.current_mouse.hold_time,
+                                        cage.lever.ns.time_in_range,
                                         'success',
                                     )
                                 else:
@@ -199,18 +223,22 @@ def main():
                                     # (exited towards back of range)
                                     cage.end_trial(
                                         trial_time_start,
-                                        cage.lever.ns.time_in_range,
+                                        trial_monotime_start,
                                         '54',
+                                        cage.current_mouse.hold_time,
+                                        cage.lever.ns.time_in_range,
                                         'failed',
                                     )
                             else: # Lever exited range towards front of range
-                                if cage.lever.ns.time_in_range >= cage.mouse.hold_time:
+                                if cage.lever.ns.time_in_range >= cage.current_mouse.hold_time:
                                     # 03 is success code for Acquisition
                                     # (exited towards front of range)
                                     cage.end_trial(
                                         trial_time_start,
-                                        cage.lever.ns.time_in_range,
+                                        trial_monotime_start,
                                         '03',
+                                        cage.current_mouse.hold_time,
+                                        cage.lever.ns.time_in_range,
                                         'success',
                                     )
                                 else:
@@ -218,8 +246,10 @@ def main():
                                     # (exited towards front of range)
                                     cage.end_trial(
                                         trial_time_start,
-                                        cage.lever.ns.time_in_range,
+                                        trial_monotime_start,
                                         '53',
+                                        cage.current_mouse.hold_time,
+                                        cage.lever.ns.time_in_range,
                                         'failed',
                                     )
                         # Lever did not reach goal range - in this case
@@ -228,12 +258,21 @@ def main():
                         else:
                             print("Lever did not reach goal range. Trial cancelled (Code 52).")
                             # 52 is code for trial did not reach goal range (trial cancelled)
-                            cage.end_trial(trial_time_start, 0.0, '52', 'cancelled')
+                            cage.end_trial(
+                                trial_time_start,
+                                trial_monotime_start,
+                                '52', 
+                                cage.current_mouse.hold_time, 
+                                0.0, 
+                                'cancelled'
+                            )
                             trial_timeout = T_TIMEOUT_CANCELLED
                     else:
+                        cage.terminate_record_lever_position_process()
                         trial_timeout = T_TIMEOUT_CANCELLED
                         raise ValueError("Testing phase not found.")
-
+                    
+                    cage.trial_ongoing = False
                     cage.lever.ns.pos1 = False
                     cage.lever.ns.pos2 = False
                     cage.lever.ns.entered_range = False
@@ -241,20 +280,19 @@ def main():
                     break
 
             # Mouse pulls the lever past threshold at any time outside of a trial
-            if not cage.lever.ns.past_threshold_pos0 and cage.lever.read_counter() > THRESHOLD_POSITION_ZERO:
+            if not cage.trial_ongoing and cage.lever.read_counter() > THRESHOLD_POSITION_ZERO[1]:
                 if cage.current_mouse is None:
                     cage.buzzer.play_tone('Low',duration=0.5)
                     raise ValueError("Lever moved past threshold before any RFID detected.")
                 else:
-                    print("Lever moved past threshold during timeout or while head out \
-                          of position.")
+                    print("Lever moved past threshold during timeout or while head out of position.")
                     time_mark = time()
-                    while cage.lever.read_counter() > THRESHOLD_POSITION_ZERO:
+                    while cage.lever.read_counter() > THRESHOLD_POSITION_ZERO[1]:
                         sleep(0.01)
-                    print(f"Lever returned to threshold range in \
-                          {time() - time_mark:.2f} seconds. \
-                          Restarting time until trial can begin.")
+                    print("Lever returned to threshold range in",
+                          f"{time() - time_mark:.2f} seconds. Restarting time until trial can begin.")
                     trial_time_start = time()
+                    trial_monotime_start = monotonic()
 
     except KeyboardInterrupt:
         print("Keyboard Interrupt")
@@ -268,3 +306,5 @@ def main():
         if cage.current_mouse is not None:
             trial_timeout = T_TIMEOUT_CANCELLED
         cage.cleanup()
+
+main()

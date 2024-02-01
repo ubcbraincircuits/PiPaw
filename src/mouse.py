@@ -2,12 +2,12 @@ import os
 import numpy as np
 
 from datetime import datetime, timedelta
-from time import time, sleep, mktime, strptime
+from time import time, sleep, mktime, strptime, monotonic
 
 TASK_SUCCESS_CODES = ['02', '03', '04']
 TASK_FAIL_CODES = ['53', '54']
 
-MOUSED_DATA_FILE = "../data/mice.cfg"
+MOUSE_DATA_FILE = "./data/mice.cfg"
 
 # Maximum hold time mice can advance to
 MAX_HT = 1.0
@@ -40,11 +40,14 @@ class Mouse:
         self.free_water_remained = kwargs.get('free_water_remained')
 
         # Make relevant data directories
-        if not os.path.exists(f'../data/{self.name}'):
-            os.makedirs(f'../data/{self.name}')
+        if not os.path.exists(f'./data/{self.name}'):
+            os.makedirs(f'./data/{self.name}')
+        
+        if not os.path.exists(f'./data/{self.name}/Videos'):
+            os.makedirs(f'./data/{self.name}/Videos')
 
     def cleanup(self):
-        self.record_data(datetime.now(), '99')
+        self.record_data(datetime.now(), monotonic(), '99')
         self.save()
         print("Saving mouse data before closing")
 
@@ -54,7 +57,7 @@ class Mouse:
             f.write((f'{date.date()}\t{self.reward_pulls}\t{self.failed_pulls}\t{mean_ht}\t'
                      f'{median_ht}\t{q3ht}\t{old_ht}\t{free_water_remained}\t{phase}\n'))
 
-    def record_data(self, timestamp, event, dt=0.0, pert_force=0.0):
+    def record_data(self, timestamp, monotime, event, trial_time=0.0, pert_force=0.0):
         """
         Records event data for mouse trials to a file, including timestamps, event codes,
         hold times, durations, and perturbation forces.
@@ -89,12 +92,12 @@ class Mouse:
         - Data format per line: 'timestamp\t event\t hold_time\t duration\t perturbation_force\n'.
         """
         with open(self.data_file, 'a', encoding='utf-8') as file:
-            data = f"{timestamp}\t{event}\t{self.hold_time}\t{round(dt, 4)}\t{pert_force}\n"
+            data = f"{timestamp}\t{monotime}\t{event}\t{self.hold_time}\t{round(trial_time, 4)}\t{pert_force}\n"
             file.write(data)
 
 
     def save(self):
-        with open('../data/mice.cfg', 'r', encoding='utf-8') as f:
+        with open(MOUSE_DATA_FILE, 'r', encoding='utf-8') as f:
             data = f.readlines()
 
         for idx, row in enumerate(data):
@@ -115,12 +118,13 @@ class Mouse:
                 data[idx][13] = self.phase
                 data[idx][14] = self.free_water_remained
 
-        with open('../data/mice.cfg', 'w', encoding='utf-8') as f:
+        with open(MOUSE_DATA_FILE, 'w', encoding='utf-8') as f:
             for row in data:
                 newLine = '\t'.join(map(str, row))
                 f.write(newLine + '\n')
 
     def get_prev_hold_times(self):
+        hold_times = []
         hold_time_list = []
         fail_list = []
 
@@ -129,14 +133,17 @@ class Mouse:
 
         for x in range(len(hold_times)-1, 0, -1):
             hold_time = hold_times[x].replace('\n', '').split('\t')
-            mkt = mktime(strptime(hold_time[0], '%Y-%m-%d %H:%M:%S.%f'))
-            if (time() - mkt)/86400 < 1:
-                if hold_time[1] in TASK_SUCCESS_CODES:
-                    hold_time_list.append(float(hold_time[2]))
-                elif hold_time[1] in TASK_FAIL_CODES:
-                    fail_list.append(0)
-            else:
-                break
+            try:
+                mkt = mktime(strptime(hold_time[0], '%Y-%m-%d %H:%M:%S.%f'))
+                if (time() - mkt)/86400 < 1:
+                    if hold_time[1] in TASK_SUCCESS_CODES:
+                        hold_time_list.append(float(hold_time[2]))
+                    elif hold_time[1] in TASK_FAIL_CODES:
+                        fail_list.append(0)
+                else:
+                    break
+            except:
+                continue
 
         return hold_time_list, fail_list
 
@@ -147,7 +154,7 @@ class Mouse:
         and success rates in its calculations.
 
         Parameters:
-        - new_hold_time (float): The proposed hold time to evaluate for potential updating.
+        - prev_hold_time (float): The proposed hold time to evaluate for potential updating.
 
         Returns:
         - tuple: (median_ht, mean_ht, q3ht), where median_ht is the median hold time,
@@ -169,14 +176,14 @@ class Mouse:
         if len(hold_time_list) == 0:
             print("No Successful Trials in the last 24 hours.")
             return 0, 0, 0
-
+        
         total_trials = len(hold_time_list) + len(fail_list)
         success_rate = len(hold_time_list) / total_trials
-
+        
         median_ht = round(np.percentile(hold_time_list, 50), 2)
         q3ht = round(np.percentile(hold_time_list + fail_list, 75), 2)
         mean_ht = round(np.mean(hold_time_list + fail_list), 2)
-
+        
         if prev_hold_time == MAX_HT and success_rate > REQ_SUCCESS_RATE:
             pass
         elif q3ht > MAX_HT:
@@ -191,7 +198,7 @@ class Mouse:
         elif success_rate > 0.3:
             self.hold_time = q3ht
             print(f'Hold time set to {self.hold_time}')
-
+               
         self.hold_time = prev_hold_time
         return median_ht, mean_ht, q3ht
 
@@ -210,7 +217,7 @@ class Mouse:
     def update(self):
         now = datetime.now()
 
-        if now.day() == self.mouse_day:
+        if now.day == self.mouse_day:
             return
 
         print("Rollover time reached. Resetting daily variables...")
@@ -236,18 +243,18 @@ class Mouse:
         self.reward_pulls = 0
         self.failed_pulls = 0
         self.tot_days += 1
-        self.mouse_day = now.day()
+        self.mouse_day = now.day
 
     # NOTE We need to update hold time?
 
     @property
     def daily_report_file(self):
-        return f'../data/{self.name}/{self.name}_dailyreport.txt'
+        return f'./data/{self.name}/{self.name}_dailyreport.txt'
 
     @property
     def data_file(self):
-        return f'../data/{self.name}/{self.name}_data.txt'
+        return f'./data/{self.name}/{self.name}_data.txt'
 
     @property
     def lever_position_file(self):
-        return f'../data/{self.name}/{self.name}_lever_position.txt'
+        return f'./data/{self.name}/{self.name}_lever_position.txt'
