@@ -10,7 +10,6 @@ GPIO.setup(g_motorEnable, GPIO.OUT)
 GPIO.output(g_motorEnable, False)
 GPIO.setup(g_motorDirection, GPIO.OUT)
 GPIO.output(g_motorDirection, True)
-
 motor = PWM(0)
 motor.export()
 motor.period = 1000000 #1 million ns = 1000Hz
